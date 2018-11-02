@@ -1,20 +1,25 @@
-
+/*
+	Author：Xiang
+	Data：2018/11/1
+	Description：藏宝图寻宝路径规划
+*/
 
 #include <iostream>    
 #include <string>
 #include <stack>
 using namespace std;
 
-//藏宝图类
+/*
+* @brief	藏宝图类
+*/
 class CMap 
 {
 public:
-	CMap();//邻接矩阵的初始化
+	CMap();//藏宝图邻接矩阵及其相关标记初始化
 	void Set();//设置食物、强盗和宝藏的位置
-	void DFS(int i, int *visited);//深度优先遍历
+	void DFS(int i, int *visited);//深度优先遍历，求寻宝的路径
 	void DFSTraverse();//深度遍历操作
 	void DrawGraph();//画图
-
 private:
 	int map[8][8];//藏宝图路线的邻接矩阵
 	int food;//存储食物位置的下标
@@ -27,16 +32,13 @@ private:
 	bool again;//判断是否是第二次执行搜索
 };
 
-//邻接矩阵的初始化
+/*
+* @brief	藏宝图邻接矩阵及其相关标记初始化
+*/
 CMap::CMap()
 {
-	for (int i = 0; i < 8; i++)//动态生成二维数组（矩阵）
-	{
-		for (int j = 0; j < 8; j++)
-			map[i][j] = 0;//对矩阵初始化
-		map[i][i] = 0;//对角线上元素为0，无自回路
-	}
-	//生成图
+	//初始化图
+	memset(map, 0, sizeof(map));
 	map[0][1] = map[0][2] = 1;
 	map[1][2] = map[1][3] = map[1][4] = 1;
 	map[2][1] = map[2][4] = map[2][5] = 1;
@@ -56,7 +58,9 @@ CMap::CMap()
 	again = false;
 }
 
-//画图
+/*
+* @brief	画图
+*/
 void CMap::DrawGraph()
 {
 	//控制台大小设为66×30
@@ -79,7 +83,9 @@ void CMap::DrawGraph()
 	cout << "       ----------------------------------------------------  " << endl << endl;
 }
 
-//设置食物、强盗和宝藏的位置
+/*
+* @brief	设置食物、强盗和宝藏的位置
+*/
 void CMap::Set()
 {
 	cout << "请输入食物的位置：";
@@ -88,19 +94,26 @@ void CMap::Set()
 	cin >> treasure;
 	cout << "请输入强盗的位置：";
 	cin >> thief;
-	//删除强盗的边
-	for (int i = 0; i < 8; i++)
-		map[thief][i] = map[i][thief] = 0;
 }
 
-//深度优先遍历
+/*
+* @brief	深度优先遍历，寻找是否存在能够寻宝成功的路径，若存在则输出该路径，否则提示不存在
+*/
 void CMap::DFS(int i, int *visited)
 {
 	visited[i] = 1;
 
-	//判断2个特殊结点
+	//判断3个特殊结点
 	if (i == food)	findFood = true;
 	if (i == treasure)	findTreasure = true;
+	//若遇到强盗，此路不通，删除强盗的边，以后也不会再走了
+	if (i == thief)
+	{
+		for (int i = 0; i < 8; i++)
+			map[thief][i] = map[i][thief] = 0;
+		return;
+	}
+
 	//遍历过的顶点进栈
 	v.push(i);
 
@@ -130,12 +143,12 @@ void CMap::DFS(int i, int *visited)
 					break;
 				}
 				else {//若第二次到达出口依然没有同时找到食物和宝藏，886
-					cout << "不存在可以同时找到食物和宝藏的通路！886" << endl;
+					cout << "没得寻宝，喂强盗去吧~~~" << endl;
 					getchar(); getchar();
 					exit(0);//退出
 				}
 			}
-			if(j != 7)//若j为非出口
+			if(j != 7)//若j非出口
 				DFS(j, visited);   //对未访问的邻接顶点递归调用
 		}
 	}
@@ -146,19 +159,16 @@ void CMap::DFS(int i, int *visited)
 	v.pop();
 }
 
-//深度遍历操作
+/* 
+* @brief	调用深度遍历操作
+*/
 void CMap::DFSTraverse()
 {
 	int visited[8];
 	memset(visited, 0, sizeof(visited));
 	for (int i = 0; i < 8; i++) 
-	{
 		if (!visited[i]) //对未访问过的顶点调用DFS
-		{
 			DFS(i, visited);
-		}
-	}
-	cout << endl << endl;
 }
 
 int main()
