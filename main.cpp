@@ -1,193 +1,157 @@
 /*
-	Author：Xiang
-	Data：2018/11/1
-	Description：藏宝图寻宝路径规划
+*	Author: Xiang
+*	Data: 2018/10/30
+*	Description: 解决B2国王与骑士问题（即 经典问题：亚瑟王的宫殿）
+*			基本思路:
+*			要实现所有人集合到一点，只需要考虑两种情况：
+*			1、国王非常"孤儿"地自己走：骑士和国王各走各的，就算有骑士半路遇到国王了也不带
+*			2、国王有骑士接：找到距离国王最近的骑士，到接国王的地点接上国王，接到国王的地点为该骑士的新位置，然后以骑士的走法走到集合点
+*			分别计算 上述两种情况下所需的最少步数，取其中较短者
+*			经简单推演，国王如果要被骑士接，最多只需要走2步，因此接到国王的区域的最大范围就是以国王为中心的5×5的范围
+*			经简单推演，最终的集合点必定在由最外围的骑士和国王所围成的多边形（也可能是线段或点）内
+*	Others：为了便于程序实现，在此将多边形补全为四边形，图解详见文档
+*	Version 4.0：类命名规范化
 */
 
-#include <iostream>    
-#include <string>
-#include <stack>
+#include<iostream>
+
 using namespace std;
 
-#define INFTY 32767
+#define INFTY 32767	//假装这个是无穷大
+
 
 /*
-* @brief	藏宝图类
+* @brief	CChess类	生成一个8×8的棋盘，抽象化国王与骑士问题（即 经典问题：亚瑟王的宫殿）
+* @definition		集合点assemblyPoint：国王和骑士最终走到一起的点
+*					接送点pickPoint：骑士去接国王，然后从该点开始带着国王一起运动的点
+*					御用骑士pickKnight：距离接送点步数最少，到达接送点后带着国王一起运动的骑士
 */
-class CMap 
+class CChess
 {
 public:
-	CMap();//藏宝图邻接矩阵及其相关标记初始化
-	void Set();//设置食物、强盗和宝藏的位置
-	void DFS(int i, int *visited);//深度优先遍历，求寻宝的路径
-	void DFSTraverse();//深度遍历操作
-	void DrawGraph();//画图
-	int Choose(int *d, bool *s);
-	void Dijkstra(int u, int v);
+	CChess();
+
+	int GetRow(int m);//通过一维坐标求得对应二维坐标中的行坐标
+	int GetCol(int m);//通过一维坐标求得对应二维坐标中的列坐标
+	void SetKing();//设置国王坐标（二维）
+	void SetKnight();//设置骑士数量与骑士坐标（二维）
+	
+	int Choose(int *d, bool *s);//选取当前最短路径的下标
+	int Dijkstra(int u, int v);//迪杰斯特拉算法，返回源点到终点的步数
+	void NarrowTheRange();//剪枝函数，分别求出集合点的所在范围和接送点的所在范围
+	void FindAssemblyPoint();//找到集合点
+	
+	void Output();//输出计算结果
 private:
-	int map[8][8];//藏宝图路线的邻接矩阵
-	int food;//存储食物位置的下标
-	int thief;//存储强盗位置的下标
-	int treasure;//存储宝藏位置的下标
-	bool findFood;//是否找到食物的标记
-	bool findTreasure;//是否找到宝藏的标记
-	stack<int> v;//存放遍历过的结点的堆栈
-	int path[15];//用于输出最终寻宝路径的数组
-	bool again;//判断是否是第二次执行搜索
-	int step;//步数
-	int last[15];//存储上一个结点
+	int king[2];//国王坐标（行，列）
+	int knightNum;//骑士数量
+	int knight[63][2];//骑士坐标（行，列）,最多63个骑士
+	int v[64][64];//邻接矩阵，对应的是以棋盘上64个格点为顶点、以骑士的运动方式生成的图
+	int range[4];//存储可能出现集合点的坐标范围，依次为 xMax , xMin, yMax, yMin
+	int pickArea[4];//以国王为中心最大可为5×5的方形区域，该区域内国王可以被骑士接上
+	int pickKnight;//“御用骑士”，其值对应knight数组的行标（即第n个骑士）
+	int pickPoint;//骑士接上国王位置的一维坐标
+	int minPickStep;//骑士走到接送点的最小步数
+	int assemblyStep;//到最终集合点的总步数
+	int assemblyPoint[2];//集合点的坐标
+	bool isPick;//是否接送国王
 };
 
-/*
-* @brief	藏宝图邻接矩阵及其相关标记初始化
-*/
-CMap::CMap()
-{
-	//初始化图
-	memset(map, 0, sizeof(map));
-	map[0][1] = map[0][2] = 1;
-	map[1][0] = map[1][2] = map[1][3] = map[1][4] = 1;
-	map[2][0] = map[2][1] = map[2][4] = map[2][5] = 1;
-	map[3][1] = map[3][7] = 1;
-	map[4][1] = map[4][2] = map[4][6] = 1;
-	map[5][2] = map[5][6] = 1;
-	map[6][4] = map[6][5] = map[6][7] = 1;
-
-	//是否找到食物和宝藏的标记置为false
-	findFood = false;
-	findTreasure = false;
-
-	//path初始化为-1
-	memset(path, -1, sizeof(path));
-
-	//again初始化为false
-	again = false;
-
-	//初始化step和last
-	step = -1;
-	memset(last, -1, sizeof(last));
-}
 
 /*
-* @brief	画图
+* @brief	构造函数	初始化骑士和国王坐标为-1
+*						以骑士运动方式生成图及其邻接矩阵
 */
-void CMap::DrawGraph()
+CChess::CChess()
 {
-	//控制台大小设为66×30
-	system("mode con cols=66 lines=30");
+	memset(king, -1, sizeof(king));//初始化骑士和国王坐标为-1
+	memset(knight, -1, sizeof(knight));
+	isPick = false;//默认不接国王
 
-	cout << "       ----------------------寻 宝-------------------------  " << endl;
-	cout << "       |                   V3                             |  " << endl;
-	cout << "       |                 .     .                          |  " << endl;
-	cout << "       |               .          .                       |  " << endl;
-	cout << "       |             .                .                   |  " << endl;
-	cout << "       |           V1                    .                |  " << endl;
-	cout << "       |         .  .  .                    .             |  " << endl;
-	cout << "       |       .    .   .                      .          |  " << endl;
-	cout << "       |     .      .     .                       .       |  " << endl;
-	cout << "       |   V0       .       V4  .  .  . V6  .  .  . V7    |  " << endl;
-	cout << "       |     .      .      .           .                  |  " << endl;
-	cout << "       |       .    .    .           .                    |  " << endl;
-	cout << "       |         .  .  .           .                      |  " << endl;
-	cout << "       |           V2  .  .  .  V5                        |  " << endl;
-	cout << "       ----------------------------------------------------  " << endl << endl;
-}
-
-/*
-* @brief	设置食物、强盗和宝藏的位置
-*/
-void CMap::Set()
-{
-	cout << "请输入食物的位置：";
-	cin >> food;
-	cout << "请输入宝藏的位置：";
-	cin >> treasure;
-	cout << "请输入强盗的位置：";
-	cin >> thief;
-}
-
-/*
-* @brief	深度优先遍历，寻找是否存在能够寻宝成功的路径，若存在则输出该路径，否则提示不存在
-*/
-void CMap::DFS(int i, int *visited)
-{
-	visited[i] = 1;
-	step++;//当前步数加1
-	last[step] = i;//记录为前一个结点
-
-	//判断3个特殊结点
-	if (i == food)	findFood = true;
-	if (i == treasure)	findTreasure = true;
-	//若遇到强盗，此路不通，删除强盗的边，以后也不会再走了
-	if (i == thief)
+	memset(v, 0, sizeof(v));//邻接矩阵先置0，后以骑士运动方式生成图，需进行坐标换算
+	for (int k = 0; k < 64; k++)
 	{
-		for (int i = 0; i < 8; i++)
-			map[thief][i] = map[i][thief] = 0;
-		step--;//返回前一个结点
-		return;
+		//骑士最多可走8个方向，即一个顶点最多与其他8个顶点直接相连，需将一维坐标与二位坐标相互转换
+		if (GetRow(k) - 2 > -1 && GetCol(k) - 1 > -1)	v[k][k-17] = 1;
+		if (GetRow(k) - 1 > -1 && GetCol(k) - 2 > -1)	v[k][k - 10] = 1;
+		if (GetRow(k) + 1 < 8 && GetCol(k) - 2 > -1)	v[k][k + 6] = 1;
+		if (GetRow(k) + 2 < 8 && GetCol(k) - 1 > -1)	v[k][k + 15] = 1;
+		if (GetRow(k) + 2 < 8 && GetCol(k) + 1 < 8)		v[k][k + 17] = 1;
+		if (GetRow(k) + 1 < 8 && GetCol(k) + 2 < 8)		v[k][k + 10] = 1;
+		if (GetRow(k) - 1 > -1 && GetCol(k) + 2 < 8)	v[k][k - 6] = 1;
+		if (GetRow(k) -2 > -1 && GetCol(k) + 1 < 8)		v[k][k - 15] = 1;
 	}
-	//遍历过的顶点进栈
-	v.push(i);
-
-	for (int j = 0; j < 8; j++)//j为下一个结点
-	{
-		if (map[i][j] == 1 && !visited[j])//若i到j有通路且j未被访问
-		{
-			if (j == 7)//若j为出口
-			{
-				if (findFood == true && findTreasure == true)//判断是否同时找到了食物和宝藏
-				{
-					v.push(j);//将出口结点放入堆栈，而后栈内元素倒序存入path数组内
-					for (int k = 14; !v.empty(); k--)
-					{
-						path[k] = v.top();
-						v.pop();
-					}
-					for (int k = 0; k < 15; k++)//输出path数组（path内非-1的值为正序路径）
-						if (path[k] != -1)
-							cout << path[k] << " ";
-					cout << endl;
-					getchar(); getchar();
-					exit(0);//找到一条通路后，退出程序
-				}
-				else if (!again) {//若第一次到达出口后未同时找到食物和宝藏，修改again
-					again = true;
-					break;
-				}
-			}
-			if (j != 7)//若j非出口
-			{
-
-				DFS(j, visited);   //对未访问的邻接顶点递归调用
-			}
-		}
-	}
-	//由于返回上一级递归，即返回上一个结点，添加到路径堆栈
-	step--;
-	v.push(last[step]);
 }
 
-/* 
-* @brief	调用深度遍历操作
+
+/*
+* @brief	通过一维坐标求得对应二维坐标中的行坐标
+* @param	m	顶点的一维坐标 
+* @return	row	一维坐标换算为二维坐标的行坐标
 */
-void CMap::DFSTraverse()
+int CChess::GetRow(int m)
 {
-	int visited[8];
-	memset(visited, 0, sizeof(visited));
-	//从起点开始调用DFS，只调用一次，防止强盗堵死某一分路时，探险者凭空“穿越”
-	DFS(0, visited);
-	//若遍历后没有找到路径，则输出不存在可以成功寻宝的路线
-	cout << "没得寻宝，喂强盗去吧~~~" << endl;
-	getchar(); getchar();
-	exit(0);//退出
+	return m / 8;
 }
+
+
+/*
+* @brief	通过一维坐标求得对应二维坐标中的列坐标
+* @param	m	顶点的一维坐标
+* @return	col	一维坐标换算为二维坐标的列坐标
+*/
+int CChess::GetCol(int m)
+{
+	return m % 8;
+}
+
+
+/*
+* @brief	设置国王坐标(二维)
+*/
+void CChess::SetKing()
+{
+	cout << "坐标范围为（0，0）到（7，7），请输入国王的坐标（行，列）：";
+	cin >> king[0] >> king[1];
+}
+
+
+/*
+* @brief	设置骑士数量与骑士坐标（二维）
+*/
+void CChess::SetKnight()
+{
+	int x, y;//骑士的行列坐标
+	do {
+		cout << "请输入在8×8棋盘中骑士的数量：";
+		cin >> knightNum;
+		if (knightNum <= 0 || knightNum > 63)
+			cout << "骑士数量必须在1到63之间！" << endl;
+	} while (knightNum <= 0 || knightNum > 63);
+
+	cout << "坐标范围为（0，0）到（7，7），" << endl;
+	for (int i = 0; i < knightNum; i++)
+		do {
+			cout << "请输入第" << i + 1 << "个骑士的坐标（行， 列）：";
+			cin >> x >> y;
+			if (x < 0 || x > 7 || y < 0 || y > 7)
+				cout << "第" << i << "个骑士坐标有误！请重新输入！" << endl;
+			else
+			{
+				knight[i][0] = x;
+				knight[i][1] = y;
+			}
+		} while (x < 0 || x > 7 || y < 0 || y > 7);
+		cout << "计算中..." << endl;
+}
+
 
 /*
 * @brief	选取当前最短路径的下标
 * @param	d	记录从源点u到顶点i的当前最短路径长度
 * @param	s	记录从源点u到顶点i的路径是否已经确定
 */
-int CMap::Choose(int *d, bool *s)
+int CChess::Choose(int *d, bool *s)
 {
 	int i, minpos;//d内最短路径的下标
 	int min;
@@ -202,12 +166,13 @@ int CMap::Choose(int *d, bool *s)
 	return minpos;//返回下标位置
 }
 
+
 /*
-* @brief	迪杰斯特拉算法，输出从当前点到出口的最短路径
+* @brief	迪杰斯特拉算法，返回源点到终点的步数
 * @param	u	源点
 * @param	v	终点
 */
-void CMap::Dijkstra(int u, int v)
+int CChess::Dijkstra(int u, int v)
 {
 	int i, j, k;//计数标记
 	bool s[64];//s[i]记录从源点u到顶点i的路径是否已经确定
@@ -217,8 +182,8 @@ void CMap::Dijkstra(int u, int v)
 
 	for (i = 0; i < 64; i++)//初始化
 	{
-		if (this->map[u][i])
-			d[i] = this->map[u][i];
+		if (this->v[u][i])
+			d[i] = this->v[u][i];
 		else
 			d[i] = INFTY;
 		if (i != u && d[i] < INFTY)
@@ -233,19 +198,171 @@ void CMap::Dijkstra(int u, int v)
 		k = Choose(d, s);
 		s[k] = true;//k加入到s中
 		for (j = 0; j < 64; j++)//更新d和path
-			if (!s[j] && this->map[k][j] && d[k] + this->map[k][j] < d[j])
+			if (!s[j] && this->v[k][j] && d[k] + this->v[k][j] < d[j])
 			{
-				d[j] = d[k] + this->map[k][j];
+				d[j] = d[k] + this->v[k][j];
 				path[j] = k;
 			}
 	}
+	return d[v];
 }
+
+
+/*
+*@ brief	剪枝函数	求出集合点所在的范围,并存储到range数组中，仅保存最大和最小的行列值，同时求出以国王为中心最大为5×5的接送区域pickArea
+*			核心思想	若国王 + 骑士 >= 4人，集合点必定出现在最外围的四个角色所围成的四边形中
+*						若国王 + 骑士 < 4人，无法构成四边形，则以这3点或2点为基础构成一个四边形，极限情况是一个点
+*						经简单推论，国王最多走两步就能被骑士接到，故接送地点即为以国王初始位置为中心5×5的范围。
+*/
+void CChess::NarrowTheRange() 
+{
+	//四边形的坐标范围，初始化为国王的位置
+	int rowMax , rowMin, colMax, colMin;
+		rowMax = rowMin = king[0]; colMax = colMin = king[1];
+
+	//遍历骑士坐标，求得可能存在集合点的范围
+	for (int i = 0; i < knightNum; i++)
+	{
+		rowMax = (rowMax > knight[i][0]) ? rowMax : knight[i][0];
+		rowMin = (rowMin < knight[i][0]) ? rowMin : knight[i][0];
+		colMax = (colMax > knight[i][1]) ? colMax : knight[i][1];
+		colMin = (colMin < knight[i][1]) ? colMin : knight[i][1];
+	}
+	//将求得的范围存入range数组
+	range[0] = rowMin; range[1] = rowMax;
+	range[2] = colMin; range[3] = colMax;
+
+	//求国王被接送的区域，只需判断坐标±2或±1后是否越界即可
+	//pickArea[0] = (king[0] - 2 > -1 ? king[0] - 2 : (king[0] - 1 > -1 ? king[0] - 1 : king[0]));//rowMin
+	//pickArea[1] = (king[0] + 2 < 8 ? king[0] + 2 : (king[0] + 1 < 8 ? king[0] + 1 : king[0]));//rowMax
+	//pickArea[2] = (king[1] - 2 > -1 ? king[1] - 2 : (king[1] - 1 > -1 ? king[1] - 1 : king[1]));//colMin
+	//pickArea[3] = (king[1] + 2 < 8 ? king[1] + 2 : (king[1] + 1 < 8 ? king[1] + 1 : king[1]));//colMax
+	pickArea[0] = king[0] - 1 > -1 ? king[0] - 1 : king[0];
+	pickArea[1] = king[0] + 1 < 8 ? king[0] + 1 : king[0];
+	pickArea[2] = king[1] - 1 > -1 ? king[1] - 1 : king[1];
+	pickArea[3] = king[1] + 1 < 8 ? king[1] + 1 : king[1];
+}
+
+
+/*
+* @brief	找到集合点
+*			核心思想	1、已通过剪枝函数求得集合点可能出现的范围，只需枚举出现在range数组界定的范围内的点
+*						2、骑士不接国王：让所有角色都自己走，求得总路径最短的集合点（1）
+*						3、骑士接国王：让离国王最近的骑士去接国王，以接到国王的地点作为该骑士的起始点，再求集合点（2）
+*						4、取集合点（1）和（2）中较小者作为最终集合点，若二者相等，取（2），这样国王比较有牌面
+*/
+void CChess::FindAssemblyPoint()
+{
+	//取出range数组和pickArea内的坐标范围
+	int rowMin = range[0], rowMax = range[1], colMin = range[2], colMax = range[3];
+	int step = 0;//计步器，当前顶点的总步数
+	int minStep1 = INFTY, minStep2 = INFTY;//记录最少步数，初始化为无穷大
+	int point1 = 0, point2 = 0;//初始化两种方案的集合点为一维坐标0
+	int pickStep = INFTY;//当前骑士去接国王所需的步数，初始化为无穷大
+
+	//用一维坐标遍历棋盘上的点
+	//骑士不接国王时，直接寻找集合点（1）
+	for (int i = 0; i < 64; i++)
+	{
+		//判断该点是否在剪枝函数限定的范围内，若是，则继续计算，否则跳过查询下一个点
+		if (GetRow(i) >= rowMin && GetRow(i) <= rowMax && GetCol(i) >= colMin && GetCol(i) <= colMax)
+		{
+			for (int j = 0; j < knightNum; j++)
+				step += Dijkstra(i, knight[j][0] * 8 + knight[j][1]);//用迪杰斯特拉算法求各个骑士到给定点的步数
+			//国王可以斜着走，因此国王的步数 = max（ 源目两点行坐标的差值 , 源目两点列坐标的差值）
+			step += abs(king[0] - GetRow(i)) > abs(king[1] - GetCol(i)) ? abs(king[0] - GetRow(i)) : abs(king[1] - GetCol(i));
+			//更新当前最小步数与暂定集合点（1）
+			if (step < minStep1)
+			{
+				minStep1 = step;
+				point1 = i;
+			}
+		}
+		step = 0;//计数器置零
+	}
+
+
+	//骑士接国王时
+	int pickRowMin = pickArea[0], pickRowMax = pickArea[1], pickColMin = pickArea[2], pickColMax = pickArea[3];//取出pickArea内的范围
+	minPickStep = INFTY; //骑士走到接送点的最小接送步数初始化为无穷大
+	//在pickArea内挑选出“御用骑士”
+	for (int i = pickRowMin; i <= pickRowMax; i++)
+		for (int j = pickColMin; j <= pickColMax; j++)
+		{
+			for (int k = 0; k < knightNum; k++)//挑选接到国王需要的步数最少的骑士作为“御用骑士”
+			{
+				pickStep = Dijkstra(i * 8 + j, knight[k][0] * 8 + knight[k][1]);//求“御用骑士”到接送点的步数
+				pickStep += abs(king[0] - i) > abs(king[1] - j) ? abs(king[0] - i) : abs(king[1] - j);//国王到接送点的步数
+				//更新骑士接送步数，将接送点作为“御用骑士”的新起始位置
+				if (pickStep < minPickStep)
+				{
+					minPickStep = pickStep;
+					pickKnight = k;
+					pickPoint = i * 8 + j;
+				}
+			}
+		}
+
+	int newKnight[63][2];//复制一个knight数组，更新“御用骑士”的位置
+	memcpy(newKnight, knight, sizeof(knight));
+	newKnight[pickKnight][0] = GetRow(pickPoint); newKnight[pickKnight][1] = GetCol(pickPoint);
+	//复制并更新完骑士数组后，正式开始寻找集合点（2）
+	for (int i = 0; i < 64; i++)
+	{
+		//判断该点是否在剪枝函数限定的范围内，若是，则继续计算，否则跳过查询下一个点
+		if (GetRow(i) >= rowMin && GetRow(i) <= rowMax && GetCol(i) >= colMin && GetCol(i) <= colMax)
+		{
+			for (int j = 0; j < knightNum; j++)
+				step += Dijkstra(i, newKnight[j][0] * 8 + newKnight[j][1]);//用迪杰斯特拉算法求各个骑士到给定点的步数
+			//更新当前最小步数与暂定集合点（2）
+			if (step < minStep2)
+			{
+				minStep2 = step;
+				point2 = i;
+			}
+		}
+		step = 0;//计数器置零
+	}
+	//总步数还需包括 接送国王时花的步数
+	minStep2 += minPickStep;
+
+	//取上述两种方法求得步数的较小者，更新集合点位置assemblyPoint和集合所需的总步数assemblyStep
+	if (minStep1 < minStep2)
+	{
+		assemblyStep = minStep1;
+		assemblyPoint[0] = GetRow(point1); assemblyPoint[1] = GetCol(point1);
+	}
+	else {
+		assemblyStep = minStep2;
+		assemblyPoint[0] = GetRow(point2); assemblyPoint[1] = GetCol(point2);
+		isPick = true;
+	}
+}
+
+
+/*
+* @brief	输出计算结果
+*/
+void CChess::Output()
+{
+	cout << "最小步数为：" << assemblyStep << "步。" << endl;
+	cout << "集合点为：（" << assemblyPoint[0] << "，" << assemblyPoint[1] << "）。" << endl;
+	cout << "计算完成。" << endl;
+	cout << "pickPoint " << GetRow(pickPoint) << "," << GetCol(pickPoint) <<endl;
+	cout << minPickStep << endl;
+}
+
 
 int main()
 {
-	CMap m;//生成藏宝图对象
-	m.DrawGraph();//画藏宝图
-	m.Set();//设置食物、宝藏和强盗的位置
-	m.DFSTraverse();//输出路径
+	CChess c;//生成一个棋盘对象
+
+	c.SetKing();//设置国王坐标
+	c.SetKnight();//设置骑士数量与各个骑士的坐标
+	c.NarrowTheRange();//剪枝函数，缩小枚举的范围
+	c.FindAssemblyPoint();//根据剪枝函数划定的范围，利用迪杰斯特拉算法，寻找集合点
+	c.Output();//输出
+	getchar();
+	getchar();
 	return 0;
 }
